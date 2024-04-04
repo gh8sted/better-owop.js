@@ -597,40 +597,34 @@
           that.ws.send(dv.buffer);
           return true;
         },
-        async pasteImageData(x, y, imageData, isImage) { // tried to do fastest as possible
+        async pasteImageData(x, y, imageData, isImage) {
           if (that.ws.readyState !== 1 || !that.clientOptions.unsafe && that.player.rank < 2) return false;
 
-          // math
+          // Adjusting math for OWOP's coordinate system
           let chunkXStart = Math.floor(x / Client.options.chunkSize);
           let chunkYStart = Math.floor(y / Client.options.chunkSize);
 
-          let chunkXEnd = Math.floor((x + imageData.width) / Client.options.chunkSize) + 1;
-          let chunkYEnd = Math.floor((y + imageData.height) / Client.options.chunkSize) + 1;
-          console.log(x, y, chunkXStart, chunkYStart, chunkXEnd, chunkYEnd)
+          let chunkXEnd = Math.ceil((x + imageData.width) / Client.options.chunkSize);
+          let chunkYEnd = Math.ceil((y + imageData.height) / Client.options.chunkSize);
 
           let canvasWidthInChunks = chunkXEnd - chunkXStart;
           let canvasHeightInChunks = chunkYEnd - chunkYStart;
 
-          let posXOnCanvas = x % Client.options.chunkSize;
-          let posYOnCanvas = y % Client.options.chunkSize;
+          let posXOnCanvas = (x < 0 && Math.abs(x) % Client.options.chunkSize !== 0) ? Client.options.chunkSize - Math.abs(x % Client.options.chunkSize) : Math.abs(x % Client.options.chunkSize);
+          let posYOnCanvas = (y < 0 && Math.abs(y) % Client.options.chunkSize !== 0) ? Client.options.chunkSize - Math.abs(y % Client.options.chunkSize) : Math.abs(y % Client.options.chunkSize);
 
-          // some shit
           let canvas = canvasUtils.createCanvas(canvasWidthInChunks * Client.options.chunkSize, canvasHeightInChunks * Client.options.chunkSize);
           let ctx = canvas.getContext("2d");
-          let image = isImage ? imageData : canvasUtils.imageDataToCtx(imageData).canvas;
+          let imageCanvas = isImage ? imageData : canvasUtils.imageDataToCtx(imageData).canvas;
 
-          // requesting chunks and setting them on canvas
+          // Requesting chunks and setting them on canvas
           await new Promise(resolve => {
             let chunksLasted = canvasWidthInChunks * canvasHeightInChunks;
-
             for (let xx = chunkXStart, canvasX = 0; xx < chunkXEnd; xx++, canvasX += Client.options.chunkSize) {
               for (let yy = chunkYStart, canvasY = 0; yy < chunkYEnd; yy++, canvasY += Client.options.chunkSize) {
-
                 that.world.requestChunk(xx, yy).then(data => {
                   let chunkImageData = canvasUtils.dataToImageData(data, Client.options.chunkSize, Client.options.chunkSize, false);
-
                   ctx.putImageData(chunkImageData, canvasX, canvasY);
-
                   chunksLasted--;
                   if (!chunksLasted) resolve();
                 });
@@ -638,16 +632,15 @@
             }
           });
 
-          ctx.drawImage(image, posXOnCanvas, posYOnCanvas); // setting image
+          // Drawing image at corrected position on the canvas
+          ctx.drawImage(imageCanvas, posXOnCanvas, posYOnCanvas);
 
-          // pasting
+          // Pasting updated chunks back to the world
           for (let xx = chunkXStart, canvasX = 0; xx < chunkXEnd; xx++, canvasX += Client.options.chunkSize) {
             for (let yy = chunkYStart, canvasY = 0; yy < chunkYEnd; yy++, canvasY += Client.options.chunkSize) {
               let chunkImageData = ctx.getImageData(canvasX, canvasY, Client.options.chunkSize, Client.options.chunkSize);
               let chunkData = canvasUtils.removeAlphaFromImageData(chunkImageData.data);
-
               if (Client.utils.isArraysSame(chunkData, that.chunkSystem.getChunk(xx, yy))) continue;
-
               that.world.pasteChunk(xx, yy, chunkData);
             }
           }
